@@ -120,7 +120,7 @@
 
     .app {
       width: 100%;
-      max-width: 440px;
+      max-width: 472px;
       display: flex;
       flex-direction: column;
       gap: 20px;
@@ -223,11 +223,11 @@
       transition: background-color var(--transition-theme), border-color var(--transition-theme), box-shadow var(--transition-theme);
     }
 
-    /* Mode Segmented Control */
+    /* Quick Preset Buttons */
     .modes {
       width: 100%;
       display: grid;
-      grid-template-columns: repeat(3, 1fr);
+      grid-template-columns: repeat(3, minmax(0, 1fr));
       gap: 4px;
       padding: 4px;
       border-radius: 16px;
@@ -240,13 +240,14 @@
       background: transparent;
       color: var(--text-secondary);
       font: inherit;
-      font-size: 0.825rem;
+      font-size: 0.78rem;
       font-weight: 550;
-      padding: 9px 8px;
+      padding: 9px 6px;
       border-radius: 12px;
       cursor: pointer;
       transition: background-color var(--transition-fast), color var(--transition-fast), box-shadow var(--transition-fast);
       white-space: nowrap;
+      text-align: center;
     }
 
     .mode-btn:hover {
@@ -483,10 +484,15 @@
       border: 0;
     }
 
-    @media (max-width: 400px) {
+    @media (max-width: 420px) {
       .card {
-        padding: 22px 18px 24px;
+        padding: 22px 16px 24px;
         gap: 22px;
+      }
+
+      .mode-btn {
+        font-size: 0.72rem;
+        padding: 8px 4px;
       }
 
       .controls {
@@ -564,15 +570,15 @@
     </header>
 
     <main class="card" aria-label="Pomodoro focus timer">
-      <div class="modes" role="tablist" aria-label="Timer modes">
+      <div class="modes" role="tablist" aria-label="Timer presets">
         <button type="button" class="mode-btn" role="tab" data-mode="focus" aria-selected="true">
-          Focus
+          Focus (25m)
         </button>
         <button type="button" class="mode-btn" role="tab" data-mode="short" aria-selected="false">
-          Short Break
+          Short Break (5m)
         </button>
         <button type="button" class="mode-btn" role="tab" data-mode="long" aria-selected="false">
-          Long Break
+          Long Break (15m)
         </button>
       </div>
 
@@ -702,38 +708,75 @@
         return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
       }
 
-      function playChime() {
-        if (!soundEnabled) return;
+      function ensureAudioReady() {
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        if (!AudioContextClass) return null;
         try {
-          const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-          if (!AudioContextClass) return;
           if (!audioCtx) {
             audioCtx = new AudioContextClass();
           }
           if (audioCtx.state === 'suspended') {
-            audioCtx.resume();
+            audioCtx.resume().catch(function () {});
           }
+          return audioCtx;
+        } catch (e) {
+          return null;
+        }
+      }
 
-          const now = audioCtx.currentTime;
-          const notes = [523.25, 659.25, 783.99]; // C5, E5, G5 gentle triad
+      function scheduleChime(ctx) {
+        const now = ctx.currentTime + 0.02;
+        const notes = [523.25, 659.25, 783.99, 1046.5]; // C5, E5, G5, C6 gentle bell chime
 
-          notes.forEach(function (freq, index) {
-            const osc = audioCtx.createOscillator();
-            const gain = audioCtx.createGain();
-            const start = now + index * 0.14;
+        notes.forEach(function (freq, index) {
+          const start = now + index * 0.14;
+          const duration = index === notes.length - 1 ? 1.2 : 0.85;
 
-            osc.type = 'sine';
-            osc.frequency.setValueAtTime(freq, start);
+          // Fundamental sine tone
+          const fundamental = ctx.createOscillator();
+          const gain = ctx.createGain();
+          fundamental.type = 'sine';
+          fundamental.frequency.setValueAtTime(freq, start);
 
-            gain.gain.setValueAtTime(0.0001, start);
-            gain.gain.exponentialRampToValueAtTime(0.14, start + 0.03);
-            gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.75);
+          gain.gain.setValueAtTime(0.0001, start);
+          gain.gain.exponentialRampToValueAtTime(0.11, start + 0.025);
+          gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
 
-            osc.connect(gain);
-            gain.connect(audioCtx.destination);
-            osc.start(start);
-            osc.stop(start + 0.8);
-          });
+          fundamental.connect(gain);
+          gain.connect(ctx.destination);
+          fundamental.start(start);
+          fundamental.stop(start + duration + 0.05);
+
+          // Soft harmonic overtone for a warm bell timbre
+          const overtone = ctx.createOscillator();
+          const overtoneGain = ctx.createGain();
+          overtone.type = 'sine';
+          overtone.frequency.setValueAtTime(freq * 2, start);
+
+          overtoneGain.gain.setValueAtTime(0.0001, start);
+          overtoneGain.gain.exponentialRampToValueAtTime(0.025, start + 0.02);
+          overtoneGain.gain.exponentialRampToValueAtTime(0.0001, start + duration * 0.55);
+
+          overtone.connect(overtoneGain);
+          overtoneGain.connect(ctx.destination);
+          overtone.start(start);
+          overtone.stop(start + duration * 0.6);
+        });
+      }
+
+      function playChime() {
+        if (!soundEnabled) return;
+        const ctx = ensureAudioReady();
+        if (!ctx) return;
+
+        try {
+          if (ctx.state === 'suspended') {
+            ctx.resume().then(function () {
+              scheduleChime(ctx);
+            }).catch(function () {});
+          } else {
+            scheduleChime(ctx);
+          }
         } catch (e) {
           // Ignore audio errors if blocked by browser autoplay policy
         }
@@ -836,14 +879,9 @@
       function startTimer() {
         if (isRunning) return;
 
-        // Warm up AudioContext on user gesture so completion chime works reliably
-        if (soundEnabled && !audioCtx) {
-          const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-          if (AudioContextClass) {
-            try {
-              audioCtx = new AudioContextClass();
-            } catch (e) {}
-          }
+        // Warm up and unlock AudioContext on user gesture so completion chime works reliably
+        if (soundEnabled) {
+          ensureAudioReady();
         }
 
         if (isComplete || remainingMs <= 0) {
@@ -882,7 +920,8 @@
       }
 
       function setMode(mode) {
-        if (!MODES[mode] || mode === currentMode) return;
+        if (!MODES[mode]) return;
+        if (mode === currentMode && !isRunning && remainingMs === durationMs && !isComplete) return;
         stopLoops();
         currentMode = mode;
         durationMs = MODES[mode].durationMs;
@@ -897,7 +936,7 @@
         });
 
         renderUI();
-        announce(`Switched to ${MODES[mode].label} mode, ${formatTime(durationMs)}.`);
+        announce(`Switched to ${MODES[mode].label} preset, ${formatTime(durationMs)}.`);
       }
 
       // Theme management
@@ -923,6 +962,9 @@
       // Sound toggle
       function toggleSound() {
         soundEnabled = !soundEnabled;
+        if (soundEnabled) {
+          ensureAudioReady();
+        }
         soundToggle.setAttribute('aria-pressed', String(soundEnabled));
         soundOnIcon.hidden = !soundEnabled;
         soundOffIcon.hidden = soundEnabled;
