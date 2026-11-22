@@ -1,0 +1,1002 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light dark">
+  <title>Pomodoro Focus Timer</title>
+  <script>
+    // Apply saved or system theme before first paint to prevent flash
+    (function () {
+      try {
+        var saved = localStorage.getItem('pomodoro-theme');
+        var prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+        var theme = saved === 'dark' || saved === 'light' ? saved : (prefersDark ? 'dark' : 'light');
+        document.documentElement.setAttribute('data-theme', theme);
+      } catch (e) {
+        document.documentElement.setAttribute('data-theme', 'light');
+      }
+    })();
+  </script>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f6f5f2;
+      --bg-subtle: #eceae4;
+      --surface: #ffffff;
+      --surface-elevated: #faf9f6;
+      --border: rgba(24, 24, 27, 0.09);
+      --border-strong: rgba(24, 24, 27, 0.16);
+      --text: #18181b;
+      --text-secondary: #52525b;
+      --text-muted: #71717a;
+      --ring-track: rgba(24, 24, 27, 0.08);
+      --shadow-card: 0 1px 2px rgba(24, 24, 27, 0.04), 0 12px 32px -8px rgba(24, 24, 27, 0.08);
+      --shadow-btn: 0 1px 2px rgba(24, 24, 27, 0.06);
+
+      /* Mode accent defaults (Focus) */
+      --accent: #e0533c;
+      --accent-hover: #cc442e;
+      --accent-soft: rgba(224, 83, 60, 0.12);
+      --accent-contrast: #ffffff;
+
+      --radius-card: 28px;
+      --radius-pill: 999px;
+      --radius-btn: 14px;
+      --transition-fast: 160ms cubic-bezier(0.2, 0.8, 0.2, 1);
+      --transition-theme: 240ms ease;
+    }
+
+    :root[data-theme="dark"] {
+      color-scheme: dark;
+      --bg: #111113;
+      --bg-subtle: #1c1c20;
+      --surface: #18181c;
+      --surface-elevated: #222228;
+      --border: rgba(255, 255, 255, 0.08);
+      --border-strong: rgba(255, 255, 255, 0.16);
+      --text: #f4f4f5;
+      --text-secondary: #a1a1aa;
+      --text-muted: #71717a;
+      --ring-track: rgba(255, 255, 255, 0.09);
+      --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.3), 0 20px 44px -12px rgba(0, 0, 0, 0.55);
+      --shadow-btn: 0 1px 2px rgba(0, 0, 0, 0.35);
+
+      --accent: #f0654f;
+      --accent-hover: #f57a67;
+      --accent-soft: rgba(240, 101, 79, 0.16);
+      --accent-contrast: #ffffff;
+    }
+
+    :root[data-mode="short"] {
+      --accent: #1f9d78;
+      --accent-hover: #188565;
+      --accent-soft: rgba(31, 157, 120, 0.12);
+    }
+
+    :root[data-theme="dark"][data-mode="short"] {
+      --accent: #34c398;
+      --accent-hover: #4cd2aa;
+      --accent-soft: rgba(52, 195, 152, 0.16);
+      --accent-contrast: #08221a;
+    }
+
+    :root[data-mode="long"] {
+      --accent: #4a6fe3;
+      --accent-hover: #3a5ed0;
+      --accent-soft: rgba(74, 111, 227, 0.12);
+    }
+
+    :root[data-theme="dark"][data-mode="long"] {
+      --accent: #6c8eff;
+      --accent-hover: #85a2ff;
+      --accent-soft: rgba(108, 142, 255, 0.16);
+      --accent-contrast: #0b132b;
+    }
+
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html, body {
+      height: 100%;
+    }
+
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      background-color: var(--bg);
+      color: var(--text);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100dvh;
+      padding: 24px 16px;
+      transition: background-color var(--transition-theme), color var(--transition-theme);
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .app {
+      width: 100%;
+      max-width: 440px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    /* Header */
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 4px;
+    }
+
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .brand-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 0 4px var(--accent-soft);
+      transition: background-color var(--transition-fast), box-shadow var(--transition-fast);
+    }
+
+    .brand-title {
+      font-size: 0.95rem;
+      font-weight: 650;
+      letter-spacing: -0.01em;
+      color: var(--text);
+    }
+
+    .topbar-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .icon-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      height: 36px;
+      padding: 0 12px;
+      border-radius: var(--radius-pill);
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text-secondary);
+      font: inherit;
+      font-size: 0.8rem;
+      font-weight: 550;
+      cursor: pointer;
+      box-shadow: var(--shadow-btn);
+      transition: background-color var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast), transform var(--transition-fast);
+    }
+
+    .icon-btn.icon-only {
+      width: 36px;
+      padding: 0;
+    }
+
+    .icon-btn:hover {
+      color: var(--text);
+      border-color: var(--border-strong);
+      background: var(--surface-elevated);
+    }
+
+    .icon-btn:active {
+      transform: scale(0.96);
+    }
+
+    .icon-btn:focus-visible,
+    .mode-btn:focus-visible,
+    .control-btn:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+
+    .icon-btn svg {
+      width: 16px;
+      height: 16px;
+      flex-shrink: 0;
+    }
+
+    /* Main Timer Card */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-card);
+      box-shadow: var(--shadow-card);
+      padding: 28px 24px 28px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 28px;
+      transition: background-color var(--transition-theme), border-color var(--transition-theme), box-shadow var(--transition-theme);
+    }
+
+    /* Mode Segmented Control */
+    .modes {
+      width: 100%;
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 4px;
+      padding: 4px;
+      border-radius: 16px;
+      background: var(--bg-subtle);
+      transition: background-color var(--transition-theme);
+    }
+
+    .mode-btn {
+      border: none;
+      background: transparent;
+      color: var(--text-secondary);
+      font: inherit;
+      font-size: 0.825rem;
+      font-weight: 550;
+      padding: 9px 8px;
+      border-radius: 12px;
+      cursor: pointer;
+      transition: background-color var(--transition-fast), color var(--transition-fast), box-shadow var(--transition-fast);
+      white-space: nowrap;
+    }
+
+    .mode-btn:hover {
+      color: var(--text);
+    }
+
+    .mode-btn[aria-selected="true"] {
+      background: var(--surface);
+      color: var(--text);
+      font-weight: 600;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+    }
+
+    /* Circular Timer Display */
+    .dial-wrap {
+      position: relative;
+      width: min(276px, 74vw);
+      aspect-ratio: 1 / 1;
+      display: grid;
+      place-items: center;
+    }
+
+    .dial-svg {
+      width: 100%;
+      height: 100%;
+      transform: rotate(-90deg);
+      overflow: visible;
+    }
+
+    .dial-track {
+      fill: none;
+      stroke: var(--ring-track);
+      stroke-width: 7;
+      transition: stroke var(--transition-theme);
+    }
+
+    .dial-progress {
+      fill: none;
+      stroke: var(--accent);
+      stroke-width: 7;
+      stroke-linecap: round;
+      transition: stroke var(--transition-fast);
+    }
+
+    .dial-center {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      text-align: center;
+      user-select: none;
+    }
+
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: var(--radius-pill);
+      background: var(--accent-soft);
+      color: var(--accent);
+      font-size: 0.72rem;
+      font-weight: 650;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      transition: background-color var(--transition-fast), color var(--transition-fast);
+    }
+
+    .status-pulse {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: currentColor;
+      opacity: 0.45;
+    }
+
+    .is-running .status-pulse {
+      opacity: 1;
+      animation: pulse 1.5s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); opacity: 1; }
+      50% { transform: scale(1.45); opacity: 0.45; }
+    }
+
+    .time-display {
+      font-size: clamp(3.4rem, 12vw, 4.25rem);
+      font-weight: 700;
+      letter-spacing: -0.04em;
+      line-height: 1;
+      font-variant-numeric: tabular-nums;
+      color: var(--text);
+    }
+
+    /* Cycle Indicator */
+    .cycle-row {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      margin-top: 2px;
+    }
+
+    .cycle-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--ring-track);
+      transition: background-color var(--transition-fast), transform var(--transition-fast);
+    }
+
+    .cycle-dot.completed {
+      background: var(--accent);
+      transform: scale(1.1);
+    }
+
+    .cycle-count {
+      margin-left: 4px;
+      font-size: 0.75rem;
+      font-weight: 550;
+      color: var(--text-muted);
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* Controls */
+    .controls {
+      width: 100%;
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 10px;
+    }
+
+    .control-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      height: 46px;
+      padding: 0 14px;
+      border-radius: var(--radius-btn);
+      border: 1px solid var(--border);
+      background: var(--surface-elevated);
+      color: var(--text);
+      font: inherit;
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      box-shadow: var(--shadow-btn);
+      transition: background-color var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast), transform var(--transition-fast), opacity var(--transition-fast);
+    }
+
+    .control-btn svg {
+      width: 16px;
+      height: 16px;
+      flex-shrink: 0;
+    }
+
+    .control-btn:hover:not(:disabled) {
+      border-color: var(--border-strong);
+      transform: translateY(-1px);
+    }
+
+    .control-btn:active:not(:disabled) {
+      transform: translateY(0) scale(0.98);
+    }
+
+    .control-btn:disabled {
+      opacity: 0.42;
+      cursor: not-allowed;
+      box-shadow: none;
+    }
+
+    .control-btn.primary {
+      background: var(--accent);
+      border-color: transparent;
+      color: var(--accent-contrast);
+      box-shadow: 0 4px 14px -4px var(--accent);
+    }
+
+    .control-btn.primary:hover:not(:disabled) {
+      background: var(--accent-hover);
+      border-color: transparent;
+    }
+
+    .control-btn.primary:disabled {
+      box-shadow: none;
+    }
+
+    /* Footer Hints */
+    .footer {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-wrap: wrap;
+      gap: 14px;
+      color: var(--text-muted);
+      font-size: 0.76rem;
+    }
+
+    .shortcut {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    kbd {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 22px;
+      height: 20px;
+      padding: 0 5px;
+      border-radius: 6px;
+      border: 1px solid var(--border-strong);
+      background: var(--surface);
+      color: var(--text-secondary);
+      font-family: inherit;
+      font-size: 0.7rem;
+      font-weight: 600;
+    }
+
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+
+    @media (max-width: 400px) {
+      .card {
+        padding: 22px 18px 24px;
+        gap: 22px;
+      }
+
+      .controls {
+        gap: 8px;
+      }
+
+      .control-btn {
+        font-size: 0.85rem;
+        padding: 0 10px;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        transition-duration: 0.01ms !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="app" id="app">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-dot" aria-hidden="true"></span>
+        <h1 class="brand-title">Pomodoro</h1>
+      </div>
+
+      <div class="topbar-actions">
+        <button
+          type="button"
+          class="icon-btn icon-only"
+          id="soundToggle"
+          aria-pressed="true"
+          aria-label="Toggle completion sound"
+          title="Toggle completion sound"
+        >
+          <svg id="soundOnIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+            <path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+            <path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path>
+          </svg>
+          <svg id="soundOffIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" hidden>
+            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+            <line x1="23" y1="9" x2="17" y2="15"></line>
+            <line x1="17" y1="9" x2="23" y2="15"></line>
+          </svg>
+        </button>
+
+        <button
+          type="button"
+          class="icon-btn"
+          id="themeToggle"
+          aria-pressed="false"
+          aria-label="Toggle dark mode"
+          title="Toggle dark mode (D)"
+        >
+          <svg id="moonIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+          </svg>
+          <svg id="sunIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" hidden>
+            <circle cx="12" cy="12" r="5"></circle>
+            <line x1="12" y1="1" x2="12" y2="3"></line>
+            <line x1="12" y1="21" x2="12" y2="23"></line>
+            <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+            <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+            <line x1="1" y1="12" x2="3" y2="12"></line>
+            <line x1="21" y1="12" x2="23" y2="12"></line>
+            <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+            <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+          </svg>
+          <span id="themeLabel">Dark</span>
+        </button>
+      </div>
+    </header>
+
+    <main class="card" aria-label="Pomodoro focus timer">
+      <div class="modes" role="tablist" aria-label="Timer modes">
+        <button type="button" class="mode-btn" role="tab" data-mode="focus" aria-selected="true">
+          Focus
+        </button>
+        <button type="button" class="mode-btn" role="tab" data-mode="short" aria-selected="false">
+          Short Break
+        </button>
+        <button type="button" class="mode-btn" role="tab" data-mode="long" aria-selected="false">
+          Long Break
+        </button>
+      </div>
+
+      <div class="dial-wrap">
+        <svg class="dial-svg" viewBox="0 0 220 220" aria-hidden="true">
+          <circle class="dial-track" cx="110" cy="110" r="98"></circle>
+          <circle class="dial-progress" id="progressRing" cx="110" cy="110" r="98"></circle>
+        </svg>
+
+        <div class="dial-center">
+          <div class="status-badge">
+            <span class="status-pulse" aria-hidden="true"></span>
+            <span id="statusLabel">Ready</span>
+          </div>
+
+          <time class="time-display" id="timeDisplay" aria-label="Remaining time">25:00</time>
+
+          <div class="cycle-row" id="cycleRow" title="Completed focus sessions in current cycle">
+            <span class="cycle-dot" aria-hidden="true"></span>
+            <span class="cycle-dot" aria-hidden="true"></span>
+            <span class="cycle-dot" aria-hidden="true"></span>
+            <span class="cycle-dot" aria-hidden="true"></span>
+            <span class="cycle-count" id="sessionCount">0 done</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="controls" role="group" aria-label="Timer controls">
+        <button type="button" class="control-btn primary" id="startBtn">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <polygon points="6 4 20 12 6 20 6 4"></polygon>
+          </svg>
+          <span>Start</span>
+        </button>
+
+        <button type="button" class="control-btn" id="pauseBtn" disabled>
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <rect x="6" y="4" width="4" height="16" rx="1"></rect>
+            <rect x="14" y="4" width="4" height="16" rx="1"></rect>
+          </svg>
+          <span>Pause</span>
+        </button>
+
+        <button type="button" class="control-btn" id="resetBtn" disabled>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M3 12a9 9 0 1 0 3-6.7L3 8"></path>
+            <path d="M3 3v5h5"></path>
+          </svg>
+          <span>Reset</span>
+        </button>
+      </div>
+
+      <div class="sr-only" id="liveRegion" aria-live="polite" aria-atomic="true"></div>
+    </main>
+
+    <footer class="footer" aria-label="Keyboard shortcuts">
+      <span class="shortcut"><kbd>Space</kbd> Start / Pause</span>
+      <span class="shortcut"><kbd>R</kbd> Reset</span>
+      <span class="shortcut"><kbd>1</kbd>–<kbd>3</kbd> Mode</span>
+      <span class="shortcut"><kbd>D</kbd> Theme</span>
+    </footer>
+  </div>
+
+  <script>
+    (function () {
+      const MODES = {
+        focus: { label: 'Focus', runningText: 'Focusing', durationMs: 25 * 60 * 1000 },
+        short: { label: 'Short Break', runningText: 'Short Break', durationMs: 5 * 60 * 1000 },
+        long: { label: 'Long Break', runningText: 'Long Break', durationMs: 15 * 60 * 1000 }
+      };
+
+      const RADIUS = 98;
+      const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
+
+      // DOM elements
+      const root = document.documentElement;
+      const app = document.getElementById('app');
+      const timeDisplay = document.getElementById('timeDisplay');
+      const statusLabel = document.getElementById('statusLabel');
+      const progressRing = document.getElementById('progressRing');
+      const liveRegion = document.getElementById('liveRegion');
+      const sessionCountEl = document.getElementById('sessionCount');
+      const cycleDots = Array.from(document.querySelectorAll('.cycle-dot'));
+      const modeButtons = Array.from(document.querySelectorAll('.mode-btn'));
+
+      const startBtn = document.getElementById('startBtn');
+      const pauseBtn = document.getElementById('pauseBtn');
+      const resetBtn = document.getElementById('resetBtn');
+
+      const themeToggle = document.getElementById('themeToggle');
+      const themeLabel = document.getElementById('themeLabel');
+      const moonIcon = document.getElementById('moonIcon');
+      const sunIcon = document.getElementById('sunIcon');
+
+      const soundToggle = document.getElementById('soundToggle');
+      const soundOnIcon = document.getElementById('soundOnIcon');
+      const soundOffIcon = document.getElementById('soundOffIcon');
+
+      // Timer state
+      let currentMode = 'focus';
+      let durationMs = MODES[currentMode].durationMs;
+      let remainingMs = durationMs;
+      let isRunning = false;
+      let isComplete = false;
+      let endTime = null;
+      let rafId = null;
+      let intervalId = null;
+      let completedFocusSessions = 0;
+      let soundEnabled = true;
+      let audioCtx = null;
+
+      // Initialize progress ring geometry
+      progressRing.style.strokeDasharray = `${CIRCUMFERENCE}`;
+      progressRing.style.strokeDashoffset = '0';
+
+      function announce(message) {
+        liveRegion.textContent = '';
+        requestAnimationFrame(function () {
+          liveRegion.textContent = message;
+        });
+      }
+
+      function formatTime(ms) {
+        const totalSeconds = Math.max(0, Math.ceil(ms / 1000));
+        const minutes = Math.floor(totalSeconds / 60);
+        const seconds = totalSeconds % 60;
+        return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+      }
+
+      function playChime() {
+        if (!soundEnabled) return;
+        try {
+          const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+          if (!AudioContextClass) return;
+          if (!audioCtx) {
+            audioCtx = new AudioContextClass();
+          }
+          if (audioCtx.state === 'suspended') {
+            audioCtx.resume();
+          }
+
+          const now = audioCtx.currentTime;
+          const notes = [523.25, 659.25, 783.99]; // C5, E5, G5 gentle triad
+
+          notes.forEach(function (freq, index) {
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            const start = now + index * 0.14;
+
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(freq, start);
+
+            gain.gain.setValueAtTime(0.0001, start);
+            gain.gain.exponentialRampToValueAtTime(0.14, start + 0.03);
+            gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.75);
+
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start(start);
+            osc.stop(start + 0.8);
+          });
+        } catch (e) {
+          // Ignore audio errors if blocked by browser autoplay policy
+        }
+      }
+
+      function renderProgress(ms) {
+        const progress = durationMs > 0 ? Math.max(0, Math.min(1, ms / durationMs)) : 0;
+        const offset = CIRCUMFERENCE * (1 - progress);
+        progressRing.style.strokeDashoffset = `${offset}`;
+      }
+
+      function renderCycle() {
+        const filledInCycle = completedFocusSessions === 0
+          ? 0
+          : ((completedFocusSessions - 1) % 4) + 1;
+
+        cycleDots.forEach(function (dot, idx) {
+          dot.classList.toggle('completed', idx < filledInCycle);
+        });
+
+        sessionCountEl.textContent = `${completedFocusSessions} done`;
+      }
+
+      function renderUI() {
+        const formatted = formatTime(remainingMs);
+        timeDisplay.textContent = formatted;
+        renderProgress(remainingMs);
+
+        app.classList.toggle('is-running', isRunning);
+
+        if (isRunning) {
+          statusLabel.textContent = MODES[currentMode].runningText;
+          document.title = `${formatted} · ${MODES[currentMode].label}`;
+        } else if (isComplete) {
+          statusLabel.textContent = 'Complete';
+          document.title = `Done · ${MODES[currentMode].label}`;
+        } else if (remainingMs < durationMs) {
+          statusLabel.textContent = 'Paused';
+          document.title = `${formatted} (Paused) · Pomodoro`;
+        } else {
+          statusLabel.textContent = 'Ready';
+          document.title = 'Pomodoro Focus Timer';
+        }
+
+        startBtn.disabled = isRunning;
+        pauseBtn.disabled = !isRunning;
+        resetBtn.disabled = !isRunning && remainingMs === durationMs && !isComplete;
+      }
+
+      function stopLoops() {
+        if (rafId !== null) {
+          cancelAnimationFrame(rafId);
+          rafId = null;
+        }
+        if (intervalId !== null) {
+          clearInterval(intervalId);
+          intervalId = null;
+        }
+      }
+
+      function handleComplete() {
+        stopLoops();
+        isRunning = false;
+        isComplete = true;
+        remainingMs = 0;
+        endTime = null;
+
+        if (currentMode === 'focus') {
+          completedFocusSessions += 1;
+          renderCycle();
+        }
+
+        renderUI();
+        playChime();
+        announce(`${MODES[currentMode].label} session complete.`);
+      }
+
+      function tick() {
+        if (!isRunning || endTime === null) return;
+        const nextRemaining = endTime - Date.now();
+        if (nextRemaining <= 0) {
+          handleComplete();
+          return;
+        }
+        remainingMs = nextRemaining;
+        renderUI();
+      }
+
+      function startAnimationLoop() {
+        function frame() {
+          if (!isRunning) return;
+          tick();
+          if (isRunning) {
+            rafId = requestAnimationFrame(frame);
+          }
+        }
+        rafId = requestAnimationFrame(frame);
+      }
+
+      function startTimer() {
+        if (isRunning) return;
+
+        // Warm up AudioContext on user gesture so completion chime works reliably
+        if (soundEnabled && !audioCtx) {
+          const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+          if (AudioContextClass) {
+            try {
+              audioCtx = new AudioContextClass();
+            } catch (e) {}
+          }
+        }
+
+        if (isComplete || remainingMs <= 0) {
+          remainingMs = durationMs;
+          isComplete = false;
+        }
+
+        isRunning = true;
+        endTime = Date.now() + remainingMs;
+        renderUI();
+        announce(`${MODES[currentMode].label} timer started.`);
+
+        startAnimationLoop();
+        // Background-safe fallback interval (rAF pauses in inactive tabs)
+        intervalId = setInterval(tick, 250);
+      }
+
+      function pauseTimer() {
+        if (!isRunning) return;
+        remainingMs = Math.max(0, endTime - Date.now());
+        stopLoops();
+        isRunning = false;
+        endTime = null;
+        renderUI();
+        announce(`Timer paused at ${formatTime(remainingMs)}.`);
+      }
+
+      function resetTimer() {
+        stopLoops();
+        isRunning = false;
+        isComplete = false;
+        endTime = null;
+        remainingMs = durationMs;
+        renderUI();
+        announce(`${MODES[currentMode].label} timer reset to ${formatTime(durationMs)}.`);
+      }
+
+      function setMode(mode) {
+        if (!MODES[mode] || mode === currentMode) return;
+        stopLoops();
+        currentMode = mode;
+        durationMs = MODES[mode].durationMs;
+        remainingMs = durationMs;
+        isRunning = false;
+        isComplete = false;
+        endTime = null;
+
+        root.setAttribute('data-mode', mode);
+        modeButtons.forEach(function (btn) {
+          btn.setAttribute('aria-selected', String(btn.dataset.mode === mode));
+        });
+
+        renderUI();
+        announce(`Switched to ${MODES[mode].label} mode, ${formatTime(durationMs)}.`);
+      }
+
+      // Theme management
+      function syncThemeUI(theme) {
+        const isDark = theme === 'dark';
+        root.setAttribute('data-theme', theme);
+        themeToggle.setAttribute('aria-pressed', String(isDark));
+        themeLabel.textContent = isDark ? 'Light' : 'Dark';
+        moonIcon.hidden = isDark;
+        sunIcon.hidden = !isDark;
+      }
+
+      function toggleTheme() {
+        const current = root.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
+        const next = current === 'dark' ? 'light' : 'dark';
+        syncThemeUI(next);
+        try {
+          localStorage.setItem('pomodoro-theme', next);
+        } catch (e) {}
+        announce(`${next === 'dark' ? 'Dark' : 'Light'} mode enabled.`);
+      }
+
+      // Sound toggle
+      function toggleSound() {
+        soundEnabled = !soundEnabled;
+        soundToggle.setAttribute('aria-pressed', String(soundEnabled));
+        soundOnIcon.hidden = !soundEnabled;
+        soundOffIcon.hidden = soundEnabled;
+        announce(`Completion sound ${soundEnabled ? 'on' : 'off'}.`);
+      }
+
+      // Event bindings
+      startBtn.addEventListener('click', startTimer);
+      pauseBtn.addEventListener('click', pauseTimer);
+      resetBtn.addEventListener('click', resetTimer);
+      themeToggle.addEventListener('click', toggleTheme);
+      soundToggle.addEventListener('click', toggleSound);
+
+      modeButtons.forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          setMode(btn.dataset.mode);
+        });
+      });
+
+      document.addEventListener('keydown', function (event) {
+        if (event.metaKey || event.ctrlKey || event.altKey) return;
+        const tag = document.activeElement && document.activeElement.tagName;
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+
+        if (event.code === 'Space') {
+          // Avoid double-triggering if a button currently has focus
+          if (tag === 'BUTTON') return;
+          event.preventDefault();
+          if (isRunning) {
+            pauseTimer();
+          } else {
+            startTimer();
+          }
+        } else if (event.key === 'r' || event.key === 'R') {
+          if (!resetBtn.disabled) {
+            event.preventDefault();
+            resetTimer();
+          }
+        } else if (event.key === 'd' || event.key === 'D') {
+          event.preventDefault();
+          toggleTheme();
+        } else if (event.key === '1') {
+          setMode('focus');
+        } else if (event.key === '2') {
+          setMode('short');
+        } else if (event.key === '3') {
+          setMode('long');
+        }
+      });
+
+      // Keep UI in sync when returning to tab
+      document.addEventListener('visibilitychange', function () {
+        if (!document.hidden && isRunning) {
+          tick();
+        }
+      });
+
+      // Sync with OS color scheme changes if user hasn't explicitly saved a preference
+      if (window.matchMedia) {
+        window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function (e) {
+          try {
+            if (!localStorage.getItem('pomodoro-theme')) {
+              syncThemeUI(e.matches ? 'dark' : 'light');
+            }
+          } catch (err) {}
+        });
+      }
+
+      // Initial render
+      root.setAttribute('data-mode', currentMode);
+      syncThemeUI(root.getAttribute('data-theme') === 'dark' ? 'dark' : 'light');
+      renderCycle();
+      renderUI();
+    })();
+  </script>
+</body>
+</html>
